@@ -1,0 +1,388 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DroneScout — Autonomous ISR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#090B08; --panel:#11150E; --panel2:#0C0F0A; --edge:#232B1D;
+    --feed:#060806; --hud:#FFB02E; --hud-dim:#937431; --ink:#D9E1D0; --dim:#727B66;
+    --high:#FF4438; --med:#FFB02E; --low:#46D17F;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--void);color:var(--ink);
+    font-family:"IBM Plex Mono",monospace;font-size:13px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .ui{font-family:"Chakra Petch",sans-serif}
+  .lbl{font-family:"Chakra Petch",sans-serif;text-transform:uppercase;letter-spacing:.12em}
+
+  .shell{display:grid;grid-template-rows:auto 1fr;height:100vh;height:100dvh}
+  header{display:flex;align-items:center;gap:16px;padding:11px 16px;border-bottom:1px solid var(--edge);
+    background:linear-gradient(180deg,#0E120C,#0A0D08)}
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand svg{width:22px;height:22px;flex:none}
+  .brand h1{font-family:"Chakra Petch";font-weight:700;font-size:19px;letter-spacing:.16em;
+    text-transform:uppercase;margin:0;line-height:1}
+  .brand small{display:block;color:var(--dim);font-size:10px;letter-spacing:.18em;margin-top:2px}
+  .spacer{flex:1}
+  .clock{font-variant-numeric:tabular-nums;color:var(--hud);font-size:15px;letter-spacing:.08em}
+  .clock span{color:var(--dim);font-size:10px;letter-spacing:.14em;display:block;text-align:right}
+  .stat{display:flex;align-items:center;gap:8px;border:1px solid var(--edge);padding:6px 12px;border-radius:2px;background:#0B0E08}
+  .led{width:9px;height:9px;border-radius:50%;background:var(--dim)}
+  .led.on{background:var(--low);box-shadow:0 0 9px var(--low)}
+  .led.armed{background:var(--high);box-shadow:0 0 9px var(--high);animation:blink 1.3s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+  main{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(310px,1fr);gap:1px;background:var(--edge);overflow:hidden}
+  .col{background:var(--panel);overflow:hidden;display:flex;flex-direction:column;min-height:0}
+  .left{display:grid;grid-template-rows:minmax(0,1fr) auto auto}
+
+  /* feed */
+  .feed{position:relative;background:var(--feed);overflow:hidden;min-height:0}
+  video,#still{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;filter:saturate(.85) contrast(1.05)}
+  .feed-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:8px;color:var(--dim);text-align:center;padding:24px}
+  .feed-empty svg{width:34px;height:34px;opacity:.5}
+  /* hud */
+  .hud{position:absolute;inset:0;pointer-events:none;color:var(--hud);font-size:11px;letter-spacing:.06em;text-shadow:0 0 6px rgba(255,176,46,.35)}
+  .br{position:absolute;width:26px;height:26px;border-color:var(--hud);opacity:.85}
+  .br.tl{top:12px;left:12px;border-top:2px solid;border-left:2px solid}
+  .br.tr{top:12px;right:12px;border-top:2px solid;border-right:2px solid}
+  .br.bl{bottom:12px;left:12px;border-bottom:2px solid;border-left:2px solid}
+  .br.brr{bottom:12px;right:12px;border-bottom:2px solid;border-right:2px solid}
+  .reticle{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:54px;height:54px;opacity:.55}
+  .tele{position:absolute;font-family:"IBM Plex Mono";white-space:pre}
+  .tele.tl{top:16px;left:46px} .tele.tr{top:16px;right:18px;text-align:right}
+  .tele.bl{bottom:16px;left:18px} .tele.brr{bottom:16px;right:18px;text-align:right}
+  .rec{display:inline-flex;align-items:center;gap:5px}
+  .rec b{width:7px;height:7px;border-radius:50%;background:var(--high);animation:blink 1.1s infinite}
+  .det-layer{position:absolute;inset:0;pointer-events:none}
+  .det{position:absolute;border:1.5px solid var(--hud);box-shadow:0 0 0 1px rgba(0,0,0,.4) inset}
+  .det.hi{border-color:var(--high)} .det.med{border-color:var(--med)} .det.low{border-color:var(--low)}
+  .det b{position:absolute;top:-17px;left:-1.5px;font-family:"IBM Plex Mono";font-size:10px;background:var(--hud);
+    color:#1a1407;padding:0 5px;letter-spacing:.04em;white-space:nowrap}
+  .det.hi b{background:var(--high);color:#1a0605} .det.low b{background:var(--low);color:#06140b}
+  .scan{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--hud),transparent);
+    top:0;opacity:0;box-shadow:0 0 14px var(--hud)}
+  .feed.scanning .scan{animation:sweep 1.6s linear infinite;opacity:.9}
+  @keyframes sweep{0%{top:-2%}100%{top:102%}}
+  .feed.scanning::after{content:"ANALYZING";position:absolute;top:14px;left:50%;transform:translateX(-50%);
+    font-family:"Chakra Petch";letter-spacing:.3em;font-size:11px;color:var(--hud);animation:blink 1s infinite}
+
+  /* controls */
+  .controls{display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid var(--edge);
+    background:var(--panel2);flex-wrap:wrap}
+  .seg{display:flex;border:1px solid var(--edge);border-radius:2px;overflow:hidden}
+  .seg button{font-family:"Chakra Petch";text-transform:uppercase;letter-spacing:.08em;font-size:12px;
+    padding:7px 13px;background:#0B0E08;color:var(--dim);border:none;cursor:pointer}
+  .seg button.on{background:var(--hud);color:#1a1407}
+  .arm{font-family:"Chakra Petch";text-transform:uppercase;letter-spacing:.1em;font-size:14px;font-weight:600;
+    padding:9px 22px;border-radius:2px;border:1px solid var(--low);background:#0c1a10;color:var(--low);cursor:pointer;transition:.12s}
+  .arm:hover{background:#102a18}
+  .arm.live{border-color:var(--high);color:#ffb0aa;background:#1a0807}
+  .arm:disabled{opacity:.45;cursor:not-allowed}
+  .arm:focus-visible,.seg button:focus-visible,.drop:focus-visible{outline:2px solid var(--hud);outline-offset:2px}
+  .sel{display:flex;align-items:center;gap:7px;color:var(--dim);font-size:11px}
+  select{background:#0B0E08;color:var(--ink);border:1px solid var(--edge);font-family:"IBM Plex Mono";font-size:12px;padding:6px 8px;border-radius:2px}
+  .drop{font-family:"Chakra Petch";text-transform:uppercase;letter-spacing:.08em;font-size:12px;padding:7px 13px;
+    border:1px dashed var(--edge);border-radius:2px;background:#0B0E08;color:var(--dim);cursor:pointer}
+  .drop:hover{border-color:var(--hud);color:var(--hud)}
+  .hidec{display:none !important}
+
+  /* event log */
+  .log{border-top:1px solid var(--edge);background:var(--panel2);height:148px;display:flex;flex-direction:column}
+  .log .h{padding:7px 14px;color:var(--dim);font-size:10px;border-bottom:1px solid var(--edge);display:flex;justify-content:space-between}
+  .log .rows{overflow:auto;flex:1}
+  .lrow{display:flex;gap:10px;align-items:baseline;padding:6px 14px;border-bottom:1px solid #16190f;cursor:pointer;font-size:12px}
+  .lrow:hover{background:#0f130c}
+  .lrow .tm{color:var(--dim);font-size:10px;flex:none;width:62px;font-variant-numeric:tabular-nums}
+  .lrow .chip{flex:none;font-family:"Chakra Petch";font-size:9px;letter-spacing:.08em;padding:1px 6px;border:1px solid currentColor;border-radius:2px}
+  .lrow .sm{color:var(--ink);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chip.HIGH,.t-HIGH{color:var(--high)} .chip.MEDIUM,.t-MEDIUM{color:var(--med)} .chip.LOW,.t-LOW{color:var(--low)}
+
+  /* report */
+  .report{padding:0;overflow:auto}
+  .rhead{padding:12px 16px;border-bottom:1px solid var(--edge);background:var(--panel2);position:sticky;top:0;z-index:2}
+  .rhead .lbl{color:var(--dim);font-size:10px}
+  .rhead h2{font-family:"Chakra Petch";font-weight:700;font-size:16px;letter-spacing:.1em;margin:3px 0 0}
+  .rbody{padding:16px}
+  .empty{color:var(--dim);padding:40px 22px;text-align:center;line-height:1.7}
+  .threat{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .tbadge{font-family:"Chakra Petch";font-weight:700;letter-spacing:.08em;font-size:15px;padding:7px 14px;border:2px solid currentColor;border-radius:3px}
+  .summary{font-size:14px;line-height:1.55;color:var(--ink);margin-bottom:8px}
+  .rationale{font-size:12px;color:var(--dim);margin-bottom:18px;border-left:2px solid var(--edge);padding-left:10px}
+  .salute{border:1px solid var(--edge);border-radius:3px;overflow:hidden}
+  .srow{display:grid;grid-template-columns:74px 1fr;border-bottom:1px solid var(--edge)}
+  .srow:last-child{border-bottom:none}
+  .srow .k{background:var(--panel2);color:var(--hud);font-family:"Chakra Petch";font-size:10px;letter-spacing:.06em;
+    padding:9px 10px;border-right:1px solid var(--edge);text-transform:uppercase;line-height:1.3}
+  .srow .k small{display:block;color:var(--dim);font-size:9px;letter-spacing:.04em}
+  .srow .v{padding:9px 11px;font-size:13px;color:var(--ink)}
+  .detlist{margin-top:14px}
+  .detlist .lbl{color:var(--dim);font-size:10px;margin-bottom:6px}
+  .detlist span{display:inline-block;font-size:11px;border:1px solid var(--edge);border-radius:2px;padding:2px 8px;margin:0 5px 5px 0;color:var(--ink)}
+  .archived{font-size:10px;color:var(--hud-dim);letter-spacing:.1em;margin-bottom:10px}
+  .err{margin:0 16px 16px;border:1px solid var(--high);background:#170706;color:#ffb1ab;border-radius:3px;padding:10px 12px;font-size:12px;display:none}
+  .err.on{display:block}
+
+  @media (max-width:900px){
+    main{grid-template-columns:1fr;grid-auto-rows:minmax(0,auto)}
+    .left{grid-template-rows:auto auto auto}
+    .feed{height:42vh}
+    .report{max-height:60vh}
+    .brand small{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .led.armed,.rec b,.feed.scanning::after{animation:none}
+    .feed.scanning .scan{animation:none;opacity:.6;top:50%}
+  }
+</style>
+
+<div class="shell">
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="var(--hud)" stroke-width="1.6">
+        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3"/>
+      </svg>
+      <div><h1>DroneScout</h1><small class="lbl">Autonomous ISR</small></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="clock"><span class="lbl">Mission</span><span id="clock" style="color:var(--hud);font-size:15px">00:00:00</span></div>
+    <div class="stat"><span class="led" id="led"></span><span class="lbl" id="statTxt" style="font-size:12px">Standby</span></div>
+  </header>
+
+  <main>
+    <div class="col left">
+      <div class="feed" id="feedEl">
+        <video id="vid" playsinline muted></video>
+        <img id="still" alt="loaded frame">
+        <div class="feed-empty lbl" id="feedEmpty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3"/></svg>
+          No feed — arm to connect camera, or switch to Image and load a frame
+        </div>
+        <div class="hud">
+          <div class="br tl"></div><div class="br tr"></div><div class="br bl"></div><div class="br brr"></div>
+          <svg class="reticle" viewBox="0 0 54 54" fill="none" stroke="var(--hud)" stroke-width="1">
+            <path d="M27 4v14M27 36v14M4 27h14M36 27h14"/><circle cx="27" cy="27" r="9"/>
+          </svg>
+          <div class="tele tl" id="telTL">DRONESCOUT // ISR</div>
+          <div class="tele tr" id="telTR"></div>
+          <div class="tele bl" id="telBL"></div>
+          <div class="tele brr" id="telBR"></div>
+          <div class="det-layer" id="detLayer"></div>
+        </div>
+        <div class="scan"></div>
+      </div>
+
+      <div class="controls">
+        <div class="seg" role="tablist">
+          <button id="mLive" class="on" role="tab">Live feed</button>
+          <button id="mImg" role="tab">Image</button>
+        </div>
+        <button class="arm" id="armBtn">▶ Arm feed</button>
+        <button class="drop hidec" id="loadBtn">⬆ Load frame</button>
+        <button class="arm hidec" id="analyzeBtn" style="border-color:var(--hud);color:var(--hud);background:#1a1407">⦿ Analyze</button>
+        <input type="file" id="file" accept="image/*" style="display:none">
+        <div class="sel" id="intervalWrap"><span class="lbl">Scan</span>
+          <select id="interval"><option value="5">every 5s</option><option value="10" selected>every 10s</option>
+          <option value="15">every 15s</option><option value="30">every 30s</option></select></div>
+      </div>
+
+      <div class="log">
+        <div class="h"><span class="lbl">Event log</span><span id="logCount">0 reports</span></div>
+        <div class="rows" id="logRows"></div>
+      </div>
+    </div>
+
+    <div class="col report">
+      <div class="rhead"><div class="lbl">Intelligence report</div><h2 id="rTitle">Awaiting analysis</h2></div>
+      <div class="err" id="err"></div>
+      <div class="rbody" id="rBody">
+        <div class="empty">Standing by.<br>Arm the feed or load an image to begin autonomous analysis.<br>Each frame is examined and returned as a SALUTE report with a threat assessment.</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const reduce=matchMedia("(prefers-reduced-motion:reduce)").matches;
+const state={mode:"live",armed:false,busy:false,stream:null,timer:null,clock:null,t0:0,reports:[],seq:0,imgData:null,imgType:"image/jpeg"};
+
+/* ---- telemetry sim ---- */
+let tel={lat:34.0522,lon:-118.2437,alt:412,hdg:247,spd:18};
+function fmtLat(v){return Math.abs(v).toFixed(4)+(v>=0?"N":"S")}
+function fmtLon(v){return Math.abs(v).toFixed(4)+(v>=0?"E":"W")}
+function coordStr(){return fmtLat(tel.lat)+" "+fmtLon(tel.lon)}
+function zulu(){const d=new Date();const p=n=>String(n).padStart(2,"0");return p(d.getUTCHours())+p(d.getUTCMinutes())+p(d.getUTCSeconds())+"Z"}
+function driftTel(){tel.lat+=(Math.random()-.5)*4e-4;tel.lon+=(Math.random()-.5)*4e-4;
+  tel.alt+=Math.round((Math.random()-.5)*6);tel.hdg=(tel.hdg+(Math.random()-.4)*3+360)%360;tel.spd=Math.max(0,tel.spd+(Math.random()-.5));}
+function renderTele(){
+  $("telTR").innerHTML='<span class="rec"><b></b>REC</span>  '+zulu();
+  $("telBL").textContent=coordStr()+"  ALT "+Math.round(tel.alt)+"m";
+  $("telBR").textContent="HDG "+String(Math.round(tel.hdg)).padStart(3,"0")+"°  SPD "+tel.spd.toFixed(0)+"m/s";
+}
+setInterval(()=>{driftTel();renderTele();},1000); renderTele();
+
+/* ---- clock ---- */
+function startClock(){state.t0=Date.now();state.clock=setInterval(()=>{
+  const s=Math.floor((Date.now()-state.t0)/1000),p=n=>String(n).padStart(2,"0");
+  $("clock").textContent=p(s/3600|0)+":"+p((s/60|0)%60)+":"+p(s%60);},1000);}
+function stopClock(){clearInterval(state.clock);}
+
+/* ---- mode switching ---- */
+function setMode(m){
+  state.mode=m; disarm();
+  $("mLive").classList.toggle("on",m==="live"); $("mImg").classList.toggle("on",m==="image");
+  $("armBtn").classList.toggle("hidec",m!=="live");
+  $("intervalWrap").classList.toggle("hidec",m!=="live");
+  $("loadBtn").classList.toggle("hidec",m!=="image");
+  $("analyzeBtn").classList.toggle("hidec",m!=="image");
+  $("vid").style.display="none"; $("still").style.display=m==="image"&&state.imgData?"block":"none";
+  $("feedEmpty").style.display=(m==="image"&&state.imgData)?"none":"flex";
+  clearBoxes();
+}
+$("mLive").onclick=()=>setMode("live"); $("mImg").onclick=()=>setMode("image");
+
+/* ---- live camera ---- */
+async function arm(){
+  try{
+    state.stream=await navigator.mediaDevices.getUserMedia({video:{width:1280,height:720},audio:false});
+    $("vid").srcObject=state.stream; $("vid").style.display="block"; $("feedEmpty").style.display="none";
+    await $("vid").play();
+    state.armed=true; $("armBtn").textContent="■ Disarm"; $("armBtn").classList.add("live");
+    $("led").className="led armed"; $("statTxt").textContent="Armed"; startClock();
+    analyzeFrame(); // immediate first pass
+    const ms=+$("interval").value*1000; state.timer=setInterval(()=>{if(!state.busy)analyzeFrame();},ms);
+  }catch(e){ showErr("Camera unavailable — grant permission, or use Image mode to load a frame. ("+e.name+")"); }
+}
+function disarm(){
+  state.armed=false; clearInterval(state.timer); state.timer=null; stopClock();
+  if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null;}
+  $("vid").style.display="none"; $("armBtn").textContent="▶ Arm feed"; $("armBtn").classList.remove("live");
+  $("led").className="led"; $("statTxt").textContent="Standby"; $("feedEl").classList.remove("scanning");
+  if(state.mode==="live"){$("feedEmpty").style.display="flex";}
+}
+$("armBtn").onclick=()=>state.armed?disarm():arm();
+
+/* ---- image load ---- */
+$("loadBtn").onclick=()=>$("file").click();
+$("file").onchange=e=>{const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();r.onload=()=>{state.imgData=r.result;state.imgType=f.type||"image/jpeg";
+    $("still").src=r.result;$("still").style.display="block";$("feedEmpty").style.display="none";clearBoxes();};
+  r.readAsDataURL(f);};
+$("feedEl").addEventListener("dragover",e=>{e.preventDefault();});
+$("feedEl").addEventListener("drop",e=>{e.preventDefault();if(state.mode!=="image")setMode("image");
+  const f=e.dataTransfer.files[0];if(f){$("file").files=e.dataTransfer.files;$("file").onchange({target:{files:[f]}});}});
+$("analyzeBtn").onclick=()=>{ if(!state.imgData){showErr("Load a frame first.");return;} analyzeImage(); };
+
+/* ---- frame capture (live) ---- */
+function grabFrame(){
+  const v=$("vid"); if(!v.videoWidth) return null;
+  const w=720,h=Math.round(720*v.videoHeight/v.videoWidth);
+  const c=document.createElement("canvas");c.width=w;c.height=h;
+  c.getContext("2d").drawImage(v,0,0,w,h);
+  return c.toDataURL("image/jpeg",0.7);
+}
+function analyzeFrame(){const d=grabFrame();if(!d)return;runAnalysis(d.split(",")[1],"image/jpeg");}
+function analyzeImage(){runAnalysis(state.imgData.split(",")[1],state.imgType);}
+
+/* ---- the AI: Claude Vision as an ISR analyst ---- */
+const SYS=
+"You are DRONESCOUT, an autonomous ISR (intelligence, surveillance, reconnaissance) analyst embedded in a reconnaissance drone. "+
+"You receive ONE still frame from the drone's full-motion-video feed. Analyse it like a trained imagery analyst and report ONLY what is observable — never invent. "+
+"Note objects and activity of military or security interest (personnel, vehicles, aircraft, other drones, structures, equipment, movement, anomalies); if the scene is benign, say so plainly.\n"+
+"Respond with ONLY a JSON object, no other text:\n"+
+'{"salute":{"size":"<count/strength e.g. \'2x personnel, 1x vehicle\' or \'none observed\'>","activity":"<what is happening>",'+
+'"location":"<frame-relative position e.g. \'center-frame, mid-ground\'>","unit":"<affiliation if inferable else \'unknown\'>",'+
+'"time":"current","equipment":"<notable equipment/vehicles/weapons or \'none observed\'>"},'+
+'"detections":[{"label":"<short>","box":[x,y,w,h],"conf":0.0-1.0}],'+
+'"threat":{"level":"LOW|MEDIUM|HIGH","rationale":"<one sentence>"},'+
+'"summary":"<one plain sentence an operator reads first>"}\n'+
+"box = PERCENT of frame (0-100), x,y = top-left corner. Keep detections to the <=5 most relevant. "+
+"LOW = benign/civilian/no activity. MEDIUM = unidentified activity or possible interest. HIGH only for clear threat indicators (armed personnel, military vehicles, hostile UAS, restricted-zone intrusion).";
+
+async function runAnalysis(b64,mediaType){
+  if(state.busy) return; state.busy=true; clearErr();
+  $("feedEl").classList.add("scanning");
+  try{
+    const res=await fetch("/api/claude",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1024,system:SYS,
+        messages:[{role:"user",content:[
+          {type:"image",source:{type:"base64",media_type:mediaType,data:b64}},
+          {type:"text",text:"Analyse this drone feed frame. Platform location: "+coordStr()+", ALT "+Math.round(tel.alt)+"m. Output JSON only."}
+        ]}]})
+    });
+    if(!res.ok) throw new Error("link "+res.status);
+    const data=await res.json();
+    const text=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("").trim();
+    const parsed=parseJSON(text);
+    if(!parsed) throw new Error("could not read analysis");
+    commit(parsed);
+  }catch(e){
+    showErr("Analysis link unavailable ("+e.message+"). On a static site you need an API key behind a proxy — see deploy notes.");
+  }finally{ state.busy=false; $("feedEl").classList.remove("scanning"); }
+}
+function parseJSON(t){if(!t)return null;let s=t.replace(/```json|```/g,"").trim();
+  const a=s.indexOf("{"),b=s.lastIndexOf("}");if(a>=0&&b>a)s=s.slice(a,b+1);try{return JSON.parse(s)}catch(e){return null}}
+
+/* ---- commit a report ---- */
+function commit(d){
+  const id=++state.seq;
+  const rep={id,time:zulu(),coord:coordStr(),level:(d.threat&&d.threat.level||"LOW").toUpperCase(),
+    rationale:d.threat&&d.threat.rationale||"",summary:d.summary||"",salute:d.salute||{},
+    detections:Array.isArray(d.detections)?d.detections:[]};
+  state.reports.unshift(rep);
+  renderReport(rep,false); drawBoxes(rep.detections); renderLog();
+}
+const TL={LOW:"LOW",MEDIUM:"MEDIUM",HIGH:"HIGH"};
+function renderReport(r,archived){
+  $("rTitle").textContent="RPT-"+String(r.id).padStart(3,"0")+"  "+r.time;
+  const s=r.salute||{};
+  const cell=(k,sub,v)=>`<div class="srow"><div class="k">${k}<small>${sub}</small></div><div class="v">${esc(v||"—")}</div></div>`;
+  $("rBody").innerHTML=
+    (archived?`<div class="archived">⟲ ARCHIVED REPORT — recalled from log</div>`:``)+
+    `<div class="threat"><span class="tbadge t-${r.level}">${r.level}</span>
+       <span class="summary" style="margin:0">${esc(r.summary)}</span></div>`+
+    (r.rationale?`<div class="rationale">${esc(r.rationale)}</div>`:``)+
+    `<div class="salute">`+
+      cell("S","size",`${s.size}`)+cell("A","activity",`${s.activity}`)+
+      cell("L","location",`${r.coord} — ${s.location||"—"}`)+cell("U","unit",`${s.unit}`)+
+      cell("T","time",`${r.time}`)+cell("E","equipment",`${s.equipment}`)+
+    `</div>`+
+    (r.detections.length?`<div class="detlist"><div class="lbl">Detections (${r.detections.length})</div>`+
+      r.detections.map(x=>`<span>${esc(x.label)}${x.conf!=null?" · "+Math.round(x.conf*100)+"%":""}</span>`).join("")+`</div>`:``);
+}
+function drawBoxes(dets){
+  const L=$("detLayer");L.innerHTML="";
+  (dets||[]).forEach(x=>{const b=x.box;if(!Array.isArray(b)||b.length<4)return;
+    const cls=/* color by overall? use label heuristics */ "";
+    const el=document.createElement("div");el.className="det";
+    const c=clamp(b[0]),r=clamp(b[1]),w=clamp(b[2]),h=clamp(b[3]);
+    el.style.left=c+"%";el.style.top=r+"%";el.style.width=w+"%";el.style.height=h+"%";
+    el.innerHTML=`<b>${esc(x.label)}</b>`;L.appendChild(el);});
+}
+function clearBoxes(){$("detLayer").innerHTML="";}
+function clamp(n){n=+n;if(isNaN(n))return 0;return Math.max(0,Math.min(100,n));}
+
+/* ---- event log ---- */
+function renderLog(){
+  $("logCount").textContent=state.reports.length+" report"+(state.reports.length===1?"":"s");
+  $("logRows").innerHTML=state.reports.map(r=>
+    `<div class="lrow" data-id="${r.id}"><span class="tm">${r.time}</span>
+     <span class="chip ${r.level}">${r.level}</span><span class="sm">${esc(r.summary||"—")}</span></div>`).join("");
+  [...$("logRows").querySelectorAll(".lrow")].forEach(el=>el.onclick=()=>{
+    const r=state.reports.find(x=>x.id==el.dataset.id);if(r){renderReport(r,true);
+      if(state.mode==="image")drawBoxes(r.detections);else clearBoxes();}});
+}
+
+/* ---- util ---- */
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function showErr(m){$("err").textContent=m;$("err").classList.add("on");}
+function clearErr(){$("err").classList.remove("on");}
+
+setMode("live");
+</script>
